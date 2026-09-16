@@ -7,4 +7,3 @@ public interface IPaymentsRepository
     void Add(PostPaymentResponse payment);
     PostPaymentResponse? Get(Guid id);
 }
-
