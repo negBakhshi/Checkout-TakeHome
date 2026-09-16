@@ -1,61 +1,128 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-
-using PaymentGateway.Api.Controllers;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Moq;
+using PaymentGateway.Api.BankSimulator;
+using PaymentGateway.Api.Enums;
+using PaymentGateway.Api.Exceptions;
+using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
-using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests;
 
-public class PaymentsControllerTests
+public class PaymentsControllerTests : IDisposable
 {
-    private readonly Random _random = new();
-    
-    [Fact]
-    public async Task RetrievesAPaymentSuccessfully()
+    private readonly Mock<IBankClient> _bankClient = new();
+    private readonly WebApplicationFactory<Program> _factory;
+    private readonly HttpClient _client;
+
+    public PaymentsControllerTests()
     {
-        // Arrange
-        var payment = new PostPaymentResponse
-        {
-            Id = Guid.NewGuid(),
-            ExpiryYear = _random.Next(2023, 2030),
-            ExpiryMonth = _random.Next(1, 12),
-            Amount = _random.Next(1, 10000),
-            CardNumberLastFour = _random.Next(1111, 9999),
-            Currency = "GBP"
-        };
+        _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.Replace(ServiceDescriptor.Singleton(_bankClient.Object));
+                services.Replace(
+                    ServiceDescriptor.Singleton<TimeProvider>(TestData.CreateTimeProvider())
+                );
+            })
+        );
+        _client = _factory.CreateClient();
+    }
 
-        var paymentsRepository = new PaymentsRepository();
-        paymentsRepository.Add(payment);
+    public void Dispose()
+    {
+        _client.Dispose();
+        _factory.Dispose();
+    }
 
-        var webApplicationFactory = new WebApplicationFactory<PaymentsController>();
-        var client = webApplicationFactory.WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => ((ServiceCollection)services)
-                .AddSingleton(paymentsRepository)))
-            .CreateClient();
+    private void BankReturns(bool authorized) =>
+        _bankClient
+            .Setup(b =>
+                b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>())
+            )
+            .ReturnsAsync(new BankResponse { Authorized = authorized });
 
-        // Act
-        var response = await client.GetAsync($"/api/Payments/{payment.Id}");
-        var paymentResponse = await response.Content.ReadFromJsonAsync<PostPaymentResponse>();
-        
-        // Assert
+    [Theory]
+    [InlineData(true, PaymentStatus.Authorized)]
+    [InlineData(false, PaymentStatus.Declined)]
+    public async Task Post_ValidRequest_ReturnsBankDecision(bool authorized, PaymentStatus expected)
+    {
+        BankReturns(authorized);
+
+        var response = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
+
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.NotNull(paymentResponse);
+        var body = await response.Content.ReadFromJsonAsync<PostPaymentResponse>(TestData.Json);
+        Assert.NotNull(body);
+        Assert.Equal(expected, body.Status);
+        Assert.NotEqual(Guid.Empty, body.Id);
+        Assert.Equal("8877", body.CardNumberLastFour);
     }
 
     [Fact]
-    public async Task Returns404IfPaymentNotFound()
+    public async Task Post_InvalidRequest_ReturnsRejectedWithoutCallingBank()
     {
-        // Arrange
-        var webApplicationFactory = new WebApplicationFactory<PaymentsController>();
-        var client = webApplicationFactory.CreateClient();
-        
-        // Act
-        var response = await client.GetAsync($"/api/Payments/{Guid.NewGuid()}");
-        
-        // Assert
+        var response = await _client.PostAsJsonAsync(
+            "/api/payments",
+            TestData.ValidRequest(cardNumber: "123")
+        );
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RejectedPaymentResponse>(TestData.Json);
+        Assert.NotNull(body);
+        Assert.Equal(PaymentStatus.Rejected, body.Status);
+        Assert.NotEmpty(body.Errors);
+        _bankClient.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Post_BankUnavailable_Returns503()
+    {
+        _bankClient
+            .Setup(b =>
+                b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>())
+            )
+            .ThrowsAsync(new BankUnavailableException("Bank is currently unavailable"));
+
+        var response = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(TestData.Json);
+        Assert.Equal("Acquiring bank unavailable", problem?.Title);
+    }
+
+    [Fact]
+    public async Task Post_ThenGet_ReturnsStoredPayment()
+    {
+        BankReturns(authorized: true);
+
+        var post = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
+        var created = await post.Content.ReadFromJsonAsync<PostPaymentResponse>(TestData.Json);
+        Assert.NotNull(created);
+
+        var get = await _client.GetAsync($"/api/payments/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        var fetched = await get.Content.ReadFromJsonAsync<GetPaymentResponse>(TestData.Json);
+        Assert.NotNull(fetched);
+        Assert.Equal(created.Id, fetched.Id);
+        Assert.Equal(created.Status, fetched.Status);
+        Assert.Equal(created.CardNumberLastFour, fetched.CardNumberLastFour);
+        Assert.Equal(created.ExpiryMonth, fetched.ExpiryMonth);
+        Assert.Equal(created.ExpiryYear, fetched.ExpiryYear);
+        Assert.Equal(created.Currency, fetched.Currency);
+        Assert.Equal(created.Amount, fetched.Amount);
+    }
+
+    [Fact]
+    public async Task Get_UnknownId_Returns404()
+    {
+        var response = await _client.GetAsync($"/api/payments/{Guid.NewGuid()}");
+
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 }
