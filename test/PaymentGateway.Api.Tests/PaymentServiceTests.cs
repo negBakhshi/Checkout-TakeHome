@@ -1,17 +1,13 @@
 using Moq;
 using PaymentGateway.Api.BankSimulator;
 using PaymentGateway.Api.Enums;
-using PaymentGateway.Api.Extentions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Services;
 
 namespace PaymentGateway.Api.Tests;
 
-/// <summary>
-/// Unit tests for the orchestration layer. The bank and the repository are mocked
-/// so these only exercise the mapping and decision logic in <see cref="PaymentService"/>.
-/// </summary>
 public class PaymentServiceTests
 {
     private readonly Mock<IBankClient> _bankClient = new();
@@ -135,4 +131,3 @@ public class PaymentServiceTests
         );
     }
 }
-

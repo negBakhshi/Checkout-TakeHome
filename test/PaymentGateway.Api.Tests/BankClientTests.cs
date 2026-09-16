@@ -1,15 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using PaymentGateway.Api.BankSimulator;
-using PaymentGateway.Api.Extentions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 
 namespace PaymentGateway.Api.Tests;
 
-/// <summary>
-/// Tests the HTTP adapter in isolation by swapping the <see cref="HttpMessageHandler"/>
-/// so no real network call is made.
-/// </summary>
 public class BankClientTests
 {
     private static readonly BankPaymentRequest AnyRequest = new()
@@ -21,7 +17,9 @@ public class BankClientTests
         Cvv = "123",
     };
 
-    private static BankClient CreateClient(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) =>
+    private static BankClient CreateClient(
+        Func<HttpRequestMessage, Task<HttpResponseMessage>> respond
+    ) =>
         new(
             new HttpClient(new StubHandler(respond))
             {
@@ -38,7 +36,11 @@ public class BankClientTests
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(
-                        new { authorized = true, authorization_code = "0bb07405-6d44-4b50-a14f-7ae0beff13ad" }
+                        new
+                        {
+                            authorized = true,
+                            authorization_code = "0bb07405-6d44-4b50-a14f-7ae0beff13ad",
+                        }
                     ),
                 }
             )
@@ -57,7 +59,9 @@ public class BankClientTests
             Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = JsonContent.Create(new { authorized = false, authorization_code = "" }),
+                    Content = JsonContent.Create(
+                        new { authorized = false, authorization_code = "" }
+                    ),
                 }
             )
         );
@@ -111,7 +115,9 @@ public class BankClientTests
             Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.BadRequest)
                 {
-                    Content = JsonContent.Create(new { error_message = "Not all required properties were sent" }),
+                    Content = JsonContent.Create(
+                        new { error_message = "Not all required properties were sent" }
+                    ),
                 }
             )
         );

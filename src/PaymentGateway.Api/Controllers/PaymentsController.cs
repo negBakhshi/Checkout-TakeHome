@@ -1,8 +1,7 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-using PaymentGateway.Api.BankSimulator;
 using PaymentGateway.Api.Enums;
-using PaymentGateway.Api.Extentions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Services;

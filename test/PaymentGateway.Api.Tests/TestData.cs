@@ -1,11 +1,10 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Time.Testing;
 using PaymentGateway.Api.Models.Requests;
 
 namespace PaymentGateway.Api.Tests;
 
-/// <summary>
-/// Shared builders so each test only spells out the field it cares about.
-/// </summary>
 internal static class TestData
 {
     private const int NowYear = 2026;
@@ -23,6 +22,12 @@ internal static class TestData
 
     // FakeTimeProvider is mutable, so eachtest gets its own instance rather than sharing one across parallel test classes.
     public static FakeTimeProvider CreateTimeProvider() => new(Now);
+
+    /// <summary>Mirrors the API's serializer settings so enums round-trip as strings.</summary>
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
 
     public static PostPaymentRequest ValidRequest(
         string? cardNumber = AuthorizedCardNumber,
@@ -42,4 +47,3 @@ internal static class TestData
             Cvv = cvv,
         };
 }
-

@@ -154,4 +154,3 @@ public class PostPaymentRequestValidatorTests
             result.ShouldHaveValidationErrorFor(property).WithErrorMessage(expectedError);
     }
 }
-

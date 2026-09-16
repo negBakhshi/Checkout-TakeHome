@@ -9,7 +9,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder
+    .Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -28,9 +30,6 @@ builder.Services.AddScoped<IValidator<PostPaymentRequest>, PostPaymentRequestVal
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 
 builder.Services.AddProblemDetails();
-builder
-    .Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 var app = builder.Build();
 
@@ -51,4 +50,3 @@ app.Run();
 
 // Makes the implicit Program class visible to WebApplicationFactory<Program> in the test project.
 public partial class Program { }
-

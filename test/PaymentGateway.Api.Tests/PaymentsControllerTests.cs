@@ -7,17 +7,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 using PaymentGateway.Api.BankSimulator;
 using PaymentGateway.Api.Enums;
-using PaymentGateway.Api.Extentions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 
 namespace PaymentGateway.Api.Tests;
 
-/// <summary>
-/// Runs the real pipeline (routing, binding, validator, service, in-memory repository)
-/// with only the bank swapped for a mock. Field-level validation is covered in
-/// <see cref="PostPaymentRequestValidatorTests"/>; here we only care about each HTTP outcome.
-/// </summary>
 public class PaymentsControllerTests : IDisposable
 {
     private readonly Mock<IBankClient> _bankClient = new();
@@ -30,7 +25,9 @@ public class PaymentsControllerTests : IDisposable
             builder.ConfigureServices(services =>
             {
                 services.Replace(ServiceDescriptor.Singleton(_bankClient.Object));
-                services.Replace(ServiceDescriptor.Singleton<TimeProvider>(TestData.CreateTimeProvider()));
+                services.Replace(
+                    ServiceDescriptor.Singleton<TimeProvider>(TestData.CreateTimeProvider())
+                );
             })
         );
         _client = _factory.CreateClient();
@@ -44,7 +41,9 @@ public class PaymentsControllerTests : IDisposable
 
     private void BankReturns(bool authorized) =>
         _bankClient
-            .Setup(b => b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(b =>
+                b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>())
+            )
             .ReturnsAsync(new BankResponse { Authorized = authorized });
 
     [Theory]
@@ -57,7 +56,7 @@ public class PaymentsControllerTests : IDisposable
         var response = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<PostPaymentResponse>();
+        var body = await response.Content.ReadFromJsonAsync<PostPaymentResponse>(TestData.Json);
         Assert.NotNull(body);
         Assert.Equal(expected, body.Status);
         Assert.NotEqual(Guid.Empty, body.Id);
@@ -67,10 +66,13 @@ public class PaymentsControllerTests : IDisposable
     [Fact]
     public async Task Post_InvalidRequest_ReturnsRejectedWithoutCallingBank()
     {
-        var response = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest(cardNumber: "123"));
+        var response = await _client.PostAsJsonAsync(
+            "/api/payments",
+            TestData.ValidRequest(cardNumber: "123")
+        );
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<RejectedPaymentResponse>();
+        var body = await response.Content.ReadFromJsonAsync<RejectedPaymentResponse>(TestData.Json);
         Assert.NotNull(body);
         Assert.Equal(PaymentStatus.Rejected, body.Status);
         Assert.NotEmpty(body.Errors);
@@ -81,13 +83,15 @@ public class PaymentsControllerTests : IDisposable
     public async Task Post_BankUnavailable_Returns503()
     {
         _bankClient
-            .Setup(b => b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(b =>
+                b.ProcessPaymentAsync(It.IsAny<BankPaymentRequest>(), It.IsAny<CancellationToken>())
+            )
             .ThrowsAsync(new BankUnavailableException("Bank is currently unavailable"));
 
         var response = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(TestData.Json);
         Assert.Equal("Acquiring bank unavailable", problem?.Title);
     }
 
@@ -97,13 +101,13 @@ public class PaymentsControllerTests : IDisposable
         BankReturns(authorized: true);
 
         var post = await _client.PostAsJsonAsync("/api/payments", TestData.ValidRequest());
-        var created = await post.Content.ReadFromJsonAsync<PostPaymentResponse>();
+        var created = await post.Content.ReadFromJsonAsync<PostPaymentResponse>(TestData.Json);
         Assert.NotNull(created);
 
         var get = await _client.GetAsync($"/api/payments/{created.Id}");
 
         Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-        var fetched = await get.Content.ReadFromJsonAsync<GetPaymentResponse>();
+        var fetched = await get.Content.ReadFromJsonAsync<GetPaymentResponse>(TestData.Json);
         Assert.NotNull(fetched);
         Assert.Equal(created.Id, fetched.Id);
         Assert.Equal(created.Status, fetched.Status);

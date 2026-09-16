@@ -1,5 +1,5 @@
 using System.Net;
-using PaymentGateway.Api.Extentions;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 
 namespace PaymentGateway.Api.BankSimulator;
